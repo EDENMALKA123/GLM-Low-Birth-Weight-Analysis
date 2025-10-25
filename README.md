@@ -1,4 +1,4 @@
-ש# GLM Analysis of Low Birth Weight
+# GLM Analysis of Low Birth Weight
 
 This project presents our statistical analysis of factors influencing low birth weight among newborns, conducted as part of an applied biostatistics exercise.  
 We used **Generalized Linear Models (GLM)** with a **logistic regression** approach to study how demographic, behavioral, and medical characteristics of mothers affect the likelihood of low birth weight.
