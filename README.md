@@ -9,7 +9,7 @@ We used **Generalized Linear Models (GLM)** with a **logistic regression** appro
 We began with an exploratory analysis of the dataset, examining relationships between variables such as maternal age, race, smoking status, and socioeconomic background.
 
 <p align="center">
-  <img src="images/dist.png" alt="Distribution of Birth Weight by Race" width="70%">
+  <img src="images/dist.png" alt="Distribution of Birth Weight by Race" width="55%">
 </p>
 
 Following this stage, we fitted several logistic regression models to identify the most significant predictors of low birth weight and compared them based on fit statistics and interpretability.
