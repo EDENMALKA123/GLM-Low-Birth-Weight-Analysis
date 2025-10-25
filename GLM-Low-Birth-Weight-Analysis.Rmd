@@ -1,0 +1,765 @@
+---
+title: "52542 - Generalized Linear Models Final Paper"
+subtitle: "Analyzing Racial Disparities in Low Birth Weight Using GLM"
+author: |
+  Itay Ben Avraham (206628943)  
+  Eden Malka (318849940)  
+  Prof. Samuel Oman
+date: "April 20, 2025"
+output: 
+  word_document:
+    toc: true
+    toc_depth: 2
+    reference_docx: glm_template.docx
+---
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(corrplot)
+library(ggpubr)
+library(reshape2)
+library(readxl)
+library(ggmosaic)
+library(car)
+library(DescTools)
+library(knitr)
+
+# Read the dataset
+data <- read_excel("birthwt.data.137.xlsx")
+```
+
+# Introduction
+
+## The Problem
+
+Low birth weight is more than just a medical statistic — it’s a critical indicator of infant health and survival. Babies born under 2.5 kg face significantly higher risks of developmental complications, long-term health issues, and even infant mortality. But low birth weight isn’t solely determined by genetics or chance — it is deeply tied to maternal health, prenatal care, and broader social determinants of health.
+
+At the heart of this study lies a central research question:
+
+> **Do racial differences exist in the likelihood of low birth weight, even after accounting for maternal health and behavior?**
+
+This question is not only statistical — it reflects a deeper concern with understanding whether disparities in birth outcomes reflect underlying social inequalities, biological mechanisms, or differences in access to healthcare.
+
+## Research Objective
+
+Our objective is to investigate whether race is an independent predictor of low birth weight after controlling for other maternal risk factors. In other words, we aim to determine whether the racial disparities observed in birth weight outcomes persist even when accounting for variables such as maternal age, smoking behavior, hypertension, and prenatal care. If so, what might these disparities suggest about health inequities or biological vulnerability?
+
+## Research Hypotheses
+
+- **Null Hypothesis (H₀):**  
+  There are no racial differences in the likelihood of low birth weight after accounting for maternal health and behavioral factors.
+
+- **Alternative Hypothesis (H₁):**  
+  Racial differences in the likelihood of low birth weight persist even after controlling for maternal health and behavioral factors.
+
+## Data and Variables
+
+To answer this question, we utilize data from a **sample of 137 births** collected at Baystate Medical Center in Springfield, Massachusetts, during 1986. The dataset includes a binary response variable for low birth weight and a range of maternal and pregnancy-related predictors.
+
+The variables included in the analysis are:
+
+## Dependent Variable
+- **`low`** — Binary response variable  
+  *(1 = birth weight < 2.5 kg, 0 = birth weight ≥ 2.5 kg)*  
+
+## Independent Variable of Interest
+- **`race`** — Mother’s race  
+  *(Categorical: White, Black, Other)*
+
+- **`age`** — Mother's age in years *(Continuous)*
+- **`lwt`** — Mother's weight in pounds at last menstrual period *(Continuous)*
+- **`smoke`** — Smoking status during pregnancy *(Binary: 0 = No, 1 = Yes)*
+- **`ht`** — History of hypertension *(Binary: 0 = No, 1 = Yes)*
+- **`ui`** — Presence of uterine irritability *(Binary: 0 = No, 1 = Yes)*
+- **`ftv`** — Number of physician visits during the first trimester *(Count)*
+- **`ptl`** — Number of previous premature labors *(Count)*
+- **`bwt`** — Actual birth weight in grams *(Continuous; used for descriptive analysis only)*
+
+The dataset allows us to explore both medical and behavioral factors that may influence birth outcomes — and critically, how these intersect with racial identity.
+
+
+# Preliminary Exploratory Analysis
+
+To explore the relationship between race and birth weight, we conducted a series of graphical analyses to uncover patterns and potential disparities. The goal was to assess whether racial differences in birth weight persist after accounting for other maternal factors, such as smoking and health history.
+
+## Figure 1: Descriptive Statistics by Race and Smoking Status
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+
+# Helper function for nicer rounding to 2 digits
+fmt <- function(x) format(round(x, 2), nsmall = 2)
+
+# Summary table by race with PTL and FTV
+summary_by_race <- data %>%
+  group_by(race) %>%
+  summarise(
+    `N` = n(),
+    
+    `Age <br> (mean ± SD)` = paste0(fmt(mean(age)), " ± ", fmt(sd(age))),
+    `LWT <br> (mean ± SD)` = paste0(fmt(mean(lwt)), " ± ", fmt(sd(lwt))),
+    `BWT <br> (mean ± SD)` = paste0(fmt(mean(bwt / 1000)), " ± ", fmt(sd(bwt / 1000))),
+    
+    `PTL <br> (mean ± SD)` = paste0(fmt(mean(ptl)), " ± ", fmt(sd(ptl))),
+    `FTV <br> (mean ± SD)` = paste0(fmt(mean(ftv)), " ± ", fmt(sd(ftv))),
+    
+    `Low BW <br> (%)` = paste0(round(mean(low) * 100), "%"),
+    `Smoker <br> (%)` = paste0(round(mean(smoke) * 100), "%"),
+    `Hypertension <br> (%)` = paste0(round(mean(ht) * 100), "%"),
+    `Uterine Irritability <br> (%)` = paste0(round(mean(ui) * 100), "%")
+  )
+
+# Print the table
+kable(summary_by_race,
+      caption = "Table 1: Descriptive Summary by Race",
+      align = "c",
+      escape = FALSE)
+
+
+```
+
+
+## Figure 2: Birth Weight by Race and Smoking Status
+
+We begin with a boxplot (Figure 1) that compares birth weight across different racial groups, separated by smoking status. This plot was chosen because it allows us to simultaneously evaluate the impact of both race and smoking on birth weight. Why smoking? because it is a well-established risk factor for low birth weight — it reduces fetal growth by limiting oxygen supply. By introducing smoking as a second dimension, we aim to isolate whether race itself is an independent predictor of low birth weight or whether racial differences are partly explained by variations in smoking behavior. If the racial disparities persist within smoking and non-smoking groups, it would suggest that race exerts an independent influence on birth weight beyond behavioral factors. The results reveal clear differences: babies born to Black mothers tend to have lower birth weights compared to those born to White and Other race mothers. Smoking further reduces birth weight across all racial groups, highlighting a potential compounding effect.
+
+```{r birthweight-boxplot-enhanced-all-highlighted, fig.cap="Figure 1: Birth Weight by Race and Smoking Status", echo=FALSE, message=FALSE, warning=FALSE}
+
+# Set factor order
+data$race <- factor(data$race, levels = c("black", "white", "other"))
+data$smoke <- factor(data$smoke, levels = c(0, 1), labels = c("Non-Smoker", "Smoker"))
+
+# Custom fill colors
+custom_colors <- c(
+  "black" = "#555555",   # dark grey
+  "white" = "#D9D9D9",   # light grey
+  "other" = "#6BAED6"    # soft blue
+)
+
+# All outlined
+ggplot(data, aes(x = race, y = bwt)) +
+  geom_boxplot(aes(fill = race), color = "black", alpha = 0.8, width = 0.6, size = 1) +
+  facet_wrap(~smoke) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    title = "Birth Weight by Race and Smoking Status",
+    x = "Race",
+    y = "Birth Weight (grams)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    strip.text = element_text(face = "bold", size = 13),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    panel.spacing = unit(1.5, "lines"),
+    strip.background = element_blank()
+  ) +
+  geom_segment(data = data.frame(x = -Inf, xend = Inf, y = -Inf, yend = -Inf, smoke = c("Non-Smoker", "Smoker")),
+               aes(x = x, xend = xend, y = y, yend = yend),
+               inherit.aes = FALSE, linewidth = 1.3, color = "black")
+
+```
+## Figure 3: Correlation Heatmap
+
+To assess the overall relationship between maternal characteristics and birth weight, we generated a correlation heatmap (Figure 2). This plot helps us identify which predictors are most strongly related to birth weight and whether any multicollinearity issues exist.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+
+cor_data <- cor(data %>% select(age, lwt, ftv, ptl, bwt))
+corrplot(cor_data, method = "color", addCoef.col = "black", tl.col = "black", number.cex = 0.7)
+
+```
+Interestingly, maternal weight (lwt) shows the highest positive correlation with birth weight (r = 0.19), while the number of previous premature labors (ptl) has a small but negative correlation (r = -0.21). The absence of strong correlations between predictors reassures us that multicollinearity is unlikely to undermine the stability of the model.
+
+
+## Figure 4: Violin Plot 
+
+To further explore racial differences in birth weight distribution, we created a violin plot (Figure 3). While the boxplot shows central tendency and variation, the violin plot allows us to see the full shape of the distribution within each racial group.
+
+We noticed that the highest correlation in the dataset is between maternal age and the number of physician visits during the first trimester. This makes intuitive sense — as age increases, so does pregnancy-related risk, leading to more frequent medical monitoring. A nice alignment between data and common sense!
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Set factor levels
+data$race <- factor(data$race, levels = c("black", "white", "other"))
+
+# Custom fill colors
+custom_colors <- c(
+  "black" = "#555555",
+  "white" = "#D9D9D9",
+  "other" = "#6BAED6"
+)
+
+# Convert birth weight to kg
+data$bwt_kg <- data$bwt / 1000
+
+# Violin plot with lower smoothing
+ggplot(data, aes(x = race, y = bwt_kg, fill = race)) +
+  geom_violin(adjust = 0.65, alpha = 0.9, color = "black", size = 1) +  # not too lumpy
+  geom_jitter(width = 0.1, alpha = 0.5, size = 1.85) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    title = "Distribution of Birth Weight by Race",
+    x = "Race",
+    y = "Birth Weight (kg)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    aspect.ratio = 0.9,
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    axis.title = element_text(face = "bold"),
+    axis.text.x = element_text(face = "bold", size = 13),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+```
+The violin plot (Figure 3) reveals clear visual differences in birth weight distributions by race. The distribution for Black mothers is noticeably concentrated at lower birth weights, with most values clustering between 2.2 and 3.3 kg, and fewer births reaching higher weights. The shape is narrower and more compact overall, suggesting both lower average birth weight and less variability within the group. In contrast, the distribution for White mothers is taller and more spread out, extending to higher birth weights and reflecting greater variation. The Other group also shows more spread and a higher concentration around the upper-middle range. These shapes support the idea that infants born to Black mothers tend to weigh less, on average, compared to the other groups.
+
+The individual points within the violin plot are slightly spread out along the x-axis due to jittering — a technique that introduces small random variation to prevent overlap and make the individual data points more visible. The x-axis position of the points carries no actual meaning — the meaningful information comes from the y-axis (birth weight) and the overall shape of the distribution.
+
+
+```{r pairplot-continuous, echo=TRUE, warning=FALSE, message=FALSE}
+# התקנת GGally במקרה הצורך
+if (!require(GGally)) install.packages("GGally")
+library(GGally)
+
+# בחירת משתנים רציפים בלבד
+pair_data <- data.frame(
+  age = data$age,
+  lwt = data$lwt,
+  bwt = data$bwt
+)
+
+# ציור מטריצת פיזור
+ggpairs(pair_data,
+        upper = list(continuous = "points"),
+        lower = list(continuous = "points"),
+        diag = list(continuous = "barDiag"),
+        title = "Pairplot of Continuous Variables") +
+  theme_minimal(base_size = 11)
+
+
+```
+
+## Figure 5: Histogram of birth weight
+Finally, we included a histogram (Figure 4) to provide a general sense of the overall birth weight distribution.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Calculate mean and sd for normal curve
+mean_bwt <- mean(data$bwt, na.rm = TRUE)
+sd_bwt <- sd(data$bwt, na.rm = TRUE)
+
+ggplot(data, aes(x = bwt)) +
+  geom_histogram(
+    aes(y = ..density..),
+    binwidth = 150,
+    fill = "#56B4E9",
+    color = "black",
+    alpha = 0.7,
+    linewidth = 0.5
+  ) +
+  geom_density(aes(color = "Empirical Density"), size = 1.2) +
+  stat_function(
+    fun = dnorm,
+    args = list(mean = mean_bwt, sd = sd_bwt),
+    aes(color = "Normal Distribution"),
+    size = 1.2
+  ) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Empirical Density" = "#E69F00",
+      "Normal Distribution" = "#009E73"
+    )
+  ) +
+  scale_x_continuous(breaks = seq(1000, 5000, by = 500)) +
+  scale_y_continuous(labels = scales::label_number(accuracy = 0.0001)) +
+  labs(
+    title = "Distribution of Birth Weight with Trend Lines",
+    x = "Birth Weight (grams)",
+    y = "Density"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    legend.position = "top",
+    legend.text = element_text(size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+Birth weight follows a roughly normal distribution, with a slight skew to the right. This suggests that birth weight itself is a reasonably well-behaved predictor for modeling purposes. The binary outcome (low birth weight) will be modeled using a generalized linear model with a logit link, which is appropriate given the binary nature of the response variable.
+
+**So for summary**
+These exploratory findings provide a clear foundation for the next stage of analysis. The boxplot and violin plot confirm that racial differences in birth weight persist even after accounting for smoking, while the correlation heatmap highlights the key maternal predictors of birth weight. The overall shape of the birth weight distribution, as shown in the histogram, supports the appropriateness of using a generalized linear model with a logit link. The next step is to fit the model and test whether racial disparities remain significant after adjusting for maternal health and behavioral factors.
+
+
+# **Formulation of a Generalized Linear Model (GLIM)**
+
+To evaluate whether racial differences exist in the likelihood of low birth weight after controlling for maternal factors, we formulate a **Generalized Linear Model (GLIM)** based on a **logistic regression** framework. Since the outcome variable (*low*) is binary (*0* = normal birth weight, *1* = low birth weight), the logistic regression model is appropriate because it models the **probability** of low birth weight using a **logit link function**.
+
+---
+
+## **1. Structure of the Model**
+
+The general form of a logistic regression model is:
+
+$$
+P(Y = 1 \mid X) = \frac{\exp(\eta)}{1 + \exp(\eta)}
+$$
+
+where:  
+where:  
+- $Y$ is a binary response vector of dimension $n \times 1$, where $Y = 1$ if low birth weight and $0$ otherwise  
+- $X$ is the design matrix of predictors with dimension $n \times p$  
+- $\beta$ is a coefficient vector of dimension $p \times 1$  
+- $\eta = X\beta$ is the linear predictor, a vector of dimension $n \times 1$  
+- $P(Y = 1 \mid X)$ is a vector of probabilities for each observation, representing the likelihood that the baby is of low birth weight given the predictors in $X$
+
+The linear predictor $\eta$ takes the form:
+
+$$
+\eta = \beta_0 + \beta_1 \cdot \text{age} + \beta_2 \cdot \text{lwt} + \beta_3 \cdot \text{race}_{\text{black}} + \beta_4 \cdot \text{race}_{\text{other}} + \beta_5 \cdot \text{smoke} + \beta_6 \cdot \text{ht} + \beta_7 \cdot \text{ui} + \beta_8 \cdot \text{ftv} + \beta_9 \cdot \text{ptl}
+$$
+
+**Where:**
+
+- $\boldsymbol{\beta_0}$ — *Intercept*
+- $\boldsymbol{\beta_i}$ — *Regression coefficient* for predictor $i$
+- `race_white` is treated as the **reference category** (baseline)
+- `smoke`, `ht`, `ui` are **binary predictors**
+- `age`, `lwt` are **continuous predictors**
+- `ftv`, `ptl` are **discrete numeric predictors** (*count variables*)
+
+---
+
+## **2. Link Function**
+
+We use the **logit link function**, which transforms the probability into a linear form:
+
+$$
+\text{logit}(P(Y = 1 \mid X)) = \log \frac{P(Y = 1 \mid X)}{1 - P(Y = 1 \mid X)} = \eta
+$$
+
+This allows the model to estimate how the predictors are associated with the **log-odds** of low birth weight.
+
+---
+
+## **3. Model Assumptions**
+
+The logistic regression model relies on the following key assumptions:
+
+1. **Linearity in the log-odds** – The relationship between the predictors and the log-odds of low birth weight is linear.  
+2. **Independent observations** – The birth outcomes are assumed to be independent.  
+3. **No severe multicollinearity** – Predictors should not be highly correlated with each other (confirmed by the correlation heatmap).  
+4. **Outcome is binary** – The response variable (*low*) is binary and correctly coded as *0* or *1*.
+
+---
+
+## **4. Interpretation of Coefficients**
+
+The estimated coefficients $\beta_i$ can be interpreted as follows:  
+- $\beta_i$ represents the **log-odds change** associated with a one-unit increase in the predictor.  
+- After fitting the model, we will exponentiate the coefficients to obtain the **odds ratios**:
+
+$$
+e^{\beta_i}
+$$
+
+which represents the **multiplicative effect** on the odds of low birth weight for a one-unit increase in the predictor, holding other variables constant.
+
+For example:  
+- If $e^{\beta_3} > 1$, it would mean that babies born to Black mothers have **higher odds** of low birth weight compared to White mothers, holding other factors constant.  
+- If $e^{\beta_5}$ (smoke) is significant and greater than 1, it would suggest that smoking increases the likelihood of low birth weight.
+
+---
+
+## **5. Complete Model Specification**
+
+The final model is specified as:
+
+$$
+\log \frac{P(Y = 1)}{1 - P(Y = 1)} = \beta_0 + \beta_1 \cdot \text{age} + \beta_2 \cdot \text{lwt} + \beta_3 \cdot \text{race}_{\text{black}} + \beta_4 \cdot \text{race}_{\text{other}} + \beta_5 \cdot \text{smoke} + \beta_6 \cdot \text{ht} + \beta_7 \cdot \text{ui} + \beta_8 \cdot \text{ftv} + \beta_9 \cdot \text{ptl}
+$$
+
+where:  
+- $\text{race}_{\text{white}}$ is the **reference category**  
+- The coefficients $\beta_i$ are estimated using **maximum likelihood estimation (MLE)**,  
+which finds the values that maximize the **log-likelihood function** — the probability of observing the data given the model.
+
+---
+
+## **Why a Logit Link?**
+
+We chose a logit link because it maps the probability of low birth weight to a scale where the relationship with the predictors is linear. It ensures that the predicted probability remains between **0** and **1**, which aligns with the binary nature of the outcome variable.
+
+
+# The model
+
+## Initial Model Fitting
+
+To evaluate the relationship between maternal characteristics, behavioral factors, and the likelihood of low birth weight, we fitted an initial logistic regression model. The dependent variable was low birth weight (binary outcome: 0 = normal birth weight, 1 = low birth weight). The independent variables included maternal age, weight at last menstrual period, race, smoking status, history of hypertension, uterine irritability, number of physician visits during the first trimester, and the number of previous premature labors.
+
+$$
+\log \frac{P(Y = 1)}{1 - P(Y = 1)} = \beta_0 + \beta_1 \cdot \text{age} + \beta_2 \cdot \text{lwt} + \beta_3 \cdot \text{race}_{\text{black}} + \beta_4 \cdot \text{race}_{\text{other}} + \beta_5 \cdot \text{smoke} + \beta_6 \cdot \text{ht} + \beta_7 \cdot \text{ui} + \beta_8 \cdot \text{ftv} + \beta_9 \cdot \text{ptl}
+$$
+
+**Note:**  
+$\text{race}_{\text{white}}$ is the reference category. Coefficients for $\text{race}_{\text{black}}$ and $\text{race}_{\text{other}}$ are interpreted relative to this group.
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval = FALSE}
+library(knitr)
+library(kableExtra)
+library(dplyr)
+
+# Create the raw table
+table_df <- tibble::tibble(
+  Term = c(
+    "(Intercept)", "raceblack", "raceother", "age", "lwt", "smokeSmoker",
+    "ht1", "ui1", "ftv", "ptl"
+  ),
+  `Coefficient (β)` = c(1.43, 1.39, 0.69, -0.01, -0.02, 0.82, 1.82, 0.86, -0.21, 1.31),
+  Estimate = c(1.43, 4.02, 2.00, 0.99, 0.98, 2.26, 6.15, 2.37, 0.81, 3.69),
+  `Std. Error` = c(1.53, 0.64, 0.55, 0.05, 0.01, 0.51, 0.78, 0.58, 0.46, 0.52),
+  `z value` = c(0.23, 2.17, 1.25, -0.13, -1.97, 1.60, 2.33, 1.48, -0.45, 2.49),
+  `p-value` = c(0.81, 0.03, 0.21, 0.90, 0.05, 0.11, 0.02, 0.14, 0.65, 0.01),
+  `CI Lower` = c(0.07, 1.17, 0.68, 0.91, 0.96, 0.83, 1.38, 0.74, 0.32, 1.34),
+  `CI Upper` = c(30.31, 14.78, 6.09, 1.09, 1.00, 6.23, 31.46, 7.53, 2.01, 10.63)
+)
+
+# Apply color to p-values
+table_df <- table_df %>%
+  mutate(`p-value` = ifelse(
+    `p-value` <= 0.05,
+    cell_spec(`p-value`, color = "white", background = "forestgreen"),
+    cell_spec(`p-value`, color = "white", background = "firebrick")
+  ))
+
+# Create the final styled table
+table_df %>%
+  kable("html", escape = FALSE, digits = 2, align = "c",
+        caption = "Table: Full Logistic Regression Output with Coefficients, Odds Ratios, and Highlighted p-values") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(2, bold = TRUE)
+
+
+```
+
+### Interpretation of Model Coefficients
+
+- The effect of **race (Black vs White)** was found to be statistically significant (*p* = 0.03), meaning we **reject the null hypothesis** that race has no association with low birth weight.  
+This supports our central research question — suggesting that racial disparities in birth outcomes **persist even after controlling for maternal health and behavior**.
+
+- **Race (Black vs White):** Babies born to Black mothers are approximately **4.02 times more likely** to be of low birth weight compared to those born to White mothers (*e^1.39* = 4.02, *p* = 0.03, 95% CI: 1.17–14.78), after adjusting for all other covariates. This supports our hypothesis that racial disparities in birth outcomes persist even after controlling for maternal health and behavior.
+
+- **Hypertension:** Mothers with a history of hypertension had significantly increased odds of delivering a low birth weight baby. The odds were approximately **6.15 times higher** (*e^1.82* = 6.15, *p* = 0.02, 95% CI: 1.38–31.46) compared to those without hypertension.
+
+- **Previous Premature Labors (ptl):** A history of premature labor increased the odds of low birth weight by a factor of **3.69** (*e^1.31* = 3.69, *p* = 0.01, 95% CI: 1.34–10.63), suggesting a strong association between past obstetric complications and adverse birth outcomes.
+
+- **Maternal Weight (lwt):** Each additional pound in maternal weight was associated with a slight reduction in the odds of low birth weight (*e^−0.018* = 0.98, *p* = 0.05), indicating a small but statistically significant protective effect.
+
+Other predictors — such as maternal age, smoking status, uterine irritability, and first-trimester physician visits — did not reach statistical significance (p>0.05).
+
+In summary, the model highlights several maternal health indicators — particularly **race, hypertension**, and **past premature labors** — as significant predictors of birth outcomes.
+
+
+## Evaluating a Refined Submodel
+
+
+```{r aic-comparison, echo=FALSE, warning=FALSE, message=FALSE}
+# Load packages
+library(MASS)
+
+# Fit full model as starting point
+full_model <- glm(low ~ race + age + lwt + smoke + ht + ui + ftv + ptl,
+                  data = data, family = binomial)
+
+# Run stepwise selection using AIC (both directions)
+stepwise_model <- step(full_model, direction = "both", trace = TRUE)
+
+# View summary of final selected model
+summary(stepwise_model)
+
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+
+data$race <- relevel(data$race, ref = "white")
+
+# Final model from stepwise (based on your results)
+stepwise_model <- glm(low ~ ptl + ht + lwt + ui + race + smoke,
+                      data = data, family = binomial)
+
+summary(stepwise_model)
+
+```
+## Evaluating a Refined Submodel
+
+To improve model parsimony and fit, we applied AIC-based stepwise selection to the initial model. Stepwise selection evaluates the trade-off between model complexity and fit by iteratively adding and removing predictors based on their contribution to the model’s log-likelihood and AIC (Akaike Information Criterion).
+
+This stepwise model selection procedure functions as a form of deviance analysis, which serves as the GLM equivalent of ANOVA in classical linear modeling.
+
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval = FALSE}
+library(knitr)
+library(kableExtra)
+library(dplyr)
+
+# Create dataframe manually with the correct values
+table_df <- tibble::tibble(
+  Term = c(
+    "(Intercept)", "ptl", "ht", "lwt", "ui",
+    "raceblack", "raceother", "smokeSmoker"
+  ),
+  `Coefficient (β)` = c(
+    0.1032, 1.2488, 1.8454, -0.0183, 0.9008,
+    1.4182, 0.7761, 0.8738
+  ),
+  `Std. Error` = c(
+    1.2423, 0.5082, 0.7760, 0.0091, 0.5707,
+    0.6300, 0.5282, 0.4891
+  ),
+  `z value` = c(
+    0.083, 2.457, 2.378, -2.022, 1.578,
+    2.251, 1.469, 1.786
+  ),
+  `p-value` = c(
+    0.9338, 0.0140, 0.0174, 0.0431, 0.1145,
+    0.0244, 0.1417, 0.0740
+  )
+)
+
+# Add Odds Ratios and 95% CI
+table_df <- table_df %>%
+  mutate(
+    `Odds Ratio` = round(exp(`Coefficient (β)`), 2),
+    `CI Lower` = round(exp(`Coefficient (β)` - 1.96 * `Std. Error`), 2),
+    `CI Upper` = round(exp(`Coefficient (β)` + 1.96 * `Std. Error`), 2)
+  )
+
+# Highlight p-values
+table_df <- table_df %>%
+  mutate(`p-value` = ifelse(
+    `p-value` <= 0.05,
+    cell_spec(sprintf("%.4f", `p-value`), color = "white", background = "forestgreen"),
+    cell_spec(sprintf("%.4f", `p-value`), color = "white", background = "firebrick")
+  ))
+
+# Render final table
+table_df %>%
+  kable("html", escape = FALSE, digits = 3, align = "c",
+        caption = "Table: Final Stepwise Logistic Regression Model — Odds Ratios and 95% CI") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(2, bold = TRUE)
+
+```
+
+1. **Model Fit:**
+   - Stepwise selection reduced the AIC from **159.94** to **156.21**, indicating a more parsimonious and better-fitting model.
+   - The slight increase in residual deviance (**139.94** to **140.21**) suggests a small loss in explanatory power, but the lower AIC indicates that the model is more efficient and better balanced in terms of fit and complexity.
+
+2. **Key Predictors:**
+   - **Hypertension** (*p* = 0.0174) and **previous premature labors** (*p* = 0.0140) remain statistically significant.
+   - **Maternal weight** at the last menstrual period remains significant (*p* = 0.0431), suggesting that higher maternal weight continues to reduce the likelihood of low birth weight.
+   - **Race (black)** remains statistically significant (*p* = 0.0244), indicating that babies born to Black mothers have higher odds of low birth weight compared to White mothers.
+
+3. **Dropped Predictors:**
+   - The number of physician visits (**ftv**) and age were dropped during stepwise selection – indicating that it does not meaningfully contribute to predicting low birth weight after accounting for other factors.
+   - The consistency of hypertension, previous premature labors, and race effects after removing non-significant terms suggests that these predictors are **robust and stable**.
+
+## Residuals and Influence Diagnostics
+
+### 📊 Standardized Residuals
+
+To evaluate the **individual prediction accuracy** of our model, we examined the **standardized residuals**.  
+These residuals show how far off each observation is from the model's prediction, expressed in units of standard deviation.  
+This allows us to identify **outliers** — points where the model made unusually large errors.
+
+In logistic regression, residuals should generally fall within the range of -2 to +2.  
+The plot below displays each observation's standardized residual:
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(ggplot2)
+
+# Extract standardized residuals
+std_resid <- rstandard(stepwise_model)
+
+# Create data frame
+resid_df <- data.frame(
+  Index = 1:length(std_resid),
+  Residual = std_resid
+)
+
+# Plot
+ggplot(resid_df, aes(x = Index, y = Residual)) +
+  geom_point(color = "#e63946", size = 2) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "gray40") +
+  geom_hline(yintercept = 0, color = "black") +
+  scale_x_continuous(breaks = seq(0, length(std_resid), by = 10)) +
+  labs(title = "Standardized Residuals",
+       x = "Observation Index",
+       y = "Standardized Residual") +
+  theme_minimal(base_size = 14)
+
+```
+
+**Interpretation:**  
+Most residuals are well within the acceptable range of -2 to +2, and **no observations exceed ±3**,  
+indicating that the model fits the vast majority of cases reasonably well.
+
+However, starting around **observation index 95**, we notice a **clear split in the residuals**:  
+- One group of points lies **above the zero line**, with residuals between 1 and 2.  
+- Another group lies **below**, around -1.
+
+This pattern likely reflects the **binary nature of the response variable** (`low`) and how the model fits the two outcome groups:  
+- For babies predicted to have **low birth weight** (1), the model **underestimates the probability** in some cases, leading to positive residuals.  
+- For babies predicted to have **normal birth weight** (0), the model **slightly overestimates the risk**, resulting in negative residuals.
+
+This type of "layered" residual pattern is **not necessarily a red flag** in logistic regression — it’s a natural result of modeling a binary outcome.  
+More importantly, **no extreme residuals** are present, and the structure appears symmetric and stable.
+
+We conclude that the residuals are well-behaved and that this observed split reflects **expected variation across response categories**, not model misfit.
+
+
+### 📊 Cook’s Distance
+
+To investigate the potential influence of these high residuals, we calculated Cook’s Distance for each observation. Cook’s Distance measures how much an individual data point affects the model’s overall fit.
+The plot below shows Cook’s Distance for all observations, with the red line representing the threshold for identifying influential points
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Compute Cook's distance
+cooks_d <- cooks.distance(stepwise_model)
+n <- nrow(data)
+threshold <- 4 / n
+
+# Create data frame
+cooks_df <- data.frame(
+  Index = 1:length(cooks_d),
+  Cook = cooks_d,
+  Highlight = cooks_d > threshold
+)
+
+# Plot
+ggplot(cooks_df, aes(x = Index, y = Cook)) +
+  geom_col(aes(fill = Highlight), width = 0.8) +
+  scale_fill_manual(values = c("FALSE" = "#457b9d", "TRUE" = "#e63946")) +
+  geom_hline(yintercept = threshold, linetype = "dashed", color = "gray30") +
+  labs(title = "Cook's Distance",
+       x = "Observation Index",
+       y = "Cook's D") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+
+```
+**Interpretation:**  
+Most points have low Cook’s Distance values, indicating that they have little influence on the model’s fit.
+However, observations 11, 24, 95, 105, and 126 exceed the threshold — meaning they have disproportionate influence on the model’s coefficients.
+The Cook’s Distance values are not extreme, suggesting that these influential points are not distorting the model — but they could reflect meaningful variation rather than data errors.
+
+The overall structure of the residuals and influence diagnostics indicates that the model is statistically sound.
+While some high-leverage points exist, they are not unduly distorting the model, and their presence likely reflects real underlying variability in the data rather than poor model fit.
+Therefore, no corrective action (such as removing outliers) is required at this stage.
+
+
+### 📊 Leverage (Hat Values)
+
+To assess which observations have **unusual combinations of predictor values**, we examined the **leverage values** (diagonal entries of the hat matrix).  
+
+High leverage points are **not necessarily outliers**, but they have the potential to **pull the regression surface toward themselves**, especially when paired with large residuals.
+
+A common rule of thumb is that observations with leverage greater than `2(p + 1)/n` are worth investigating.  
+For our model (with ~7 predictors and 137 observations), that threshold is roughly **0.127**, marked as a dashed line below.
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+
+# Compute leverage
+leverage <- hatvalues(stepwise_model)
+p <- length(coef(stepwise_model)) - 1
+n <- nrow(data)
+lev_threshold <- 2 * (p + 1) / n
+
+# Data frame
+lev_df <- data.frame(
+  Index = 1:length(leverage),
+  Leverage = leverage,
+  High = leverage > lev_threshold
+)
+
+
+# Plot
+ggplot(lev_df, aes(x = Index, y = Leverage)) +
+  geom_point(aes(color = High), size = 2) +
+  scale_color_manual(values = c("FALSE" = "#1d3557", "TRUE" = "#e63946")) +
+  geom_hline(yintercept = lev_threshold, linetype = "dashed", color = "gray40") +
+  labs(title = "Leverage Values (Hat Matrix Diagonals)",
+       x = "Observation Index",
+       y = "Leverage") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+
+```
+
+**Interpretation:**  
+Most observations fall well below the leverage threshold, indicating they have typical predictor profiles.  
+
+However, we observe a number of **high-leverage points** (highlighted in red) — these are observations with **unusual combinations of maternal characteristics**, such as rare configurations of race, hypertension, prior labors, or smoking status.  
+
+Importantly, these high-leverage points are **not necessarily problematic on their own**.  
+In fact, they do **not coincide with large residuals** or outliers in Cook’s Distance, which means they aren’t distorting the model.
+
+Their influence is primarily in the **space of the predictors**, not in error magnitude.  
+As such, these points are **informative**, not alarming — and they reflect legitimate variability in patient profiles.
+
+Their inclusion improves generalizability of the model rather than threatening it, and no corrective action is warranted.
+
+
+### Model Fit and Goodness-of-Fit Tests
+
+To assess the overall fit and calibration of the model, we evaluated two key diagnostic measures:
+
+#### Overdispersion Test
+- The **overdispersion ratio** was **1.087**, which is very close to 1.  
+- This indicates that the variance of the data aligns well with the assumed binomial distribution.  
+- An overdispersion ratio near 1 suggests that the model is **well-calibrated** and that there is **no meaningful overdispersion** in the data.  
+- Therefore, the model's estimated standard errors and significance levels are likely reliable.
+
+#### Hosmer-Lemeshow Test
+- The **Hosmer-Lemeshow test** produced a chi-square value of **7.80** with a **p-value of 0.454**.  
+- Since the p-value is large (greater than 0.05), we **fail to reject the null hypothesis** that the model fits the data well.  
+- This indicates that the model's **predicted probabilities are consistent with the observed outcomes** — confirming that the model is well-calibrated and not systematically misrepresenting the data.
+
+
+### Summary: Residuals and Influence Diagnostics
+
+Overall, diagnostic checks suggest that the logistic regression model is **statistically sound and well-calibrated**.  
+Residual plots show no severe outliers or patterns indicating misspecification. A few high-leverage points and moderately influential observations were identified, but they do not distort the model and likely reflect valid variation in the data.  
+The **overdispersion ratio** is close to 1, and the **Hosmer-Lemeshow test** supports a good fit, indicating that the model's predicted probabilities align well with observed outcomes.  
+Together, these diagnostics confirm that the model is reliable for inference and interpretation.
+
+
+## Conclusions
+
+This study investigated whether racial disparities in low birth weight persist after accounting for maternal health and behavioral factors. Using logistic regression models, we examined a broad set of predictors and found that **race—particularly being Black—remained a statistically significant factor**, even after adjusting for maternal weight, hypertension, and previous premature labor. These findings lead us to reject the null hypothesis and directly support our central research question: **racial disparities in birth weight outcomes persist and cannot be fully explained by individual-level clinical or behavioral characteristics**.
+
+Our final model, refined through AIC-based stepwise selection, struck an effective balance between parsimony and predictive accuracy. It identified **race, hypertension, prior premature labors, maternal weight, and smoking** as the most influential predictors of low birth weight. Model diagnostics—including residual analysis, leverage, and Cook’s distance—indicated a robust and well-behaved fit. Furthermore, the **Hosmer-Lemeshow test** and the **overdispersion check** confirmed that the model was appropriately specified and well-calibrated for binary outcomes.
+
+In conclusion, our analysis offers statistically grounded evidence that **race remains an independent and meaningful predictor of low birth weight**, even in the presence of medical and behavioral controls. This persistent disparity suggests that broader, unmeasured structural forces—such as systemic inequities, differential access to healthcare, and psychosocial stressors—may contribute to adverse birth outcomes among marginalized groups.
+
+
