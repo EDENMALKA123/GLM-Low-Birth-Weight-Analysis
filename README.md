@@ -15,8 +15,8 @@ We also performed residual analysis and model diagnostics to evaluate the model�
 ---
 
 ### **Files**
-- `Rmd/work_Itay_and_Eden_final.Rmd` – full reproducible analysis in R  
-- `report/work-Itay-and-Eden-final.docx` – full written report with explanations, tables, and plots  
+- `GLM-Low-Birth-Weight-Analysis.Rmd` – full reproducible analysis in R  
+- `GLM-Low-Birth-Weight-Analysis.pdf` – complete written report including explanations, tables, and visualizations  
 
 ---
 
